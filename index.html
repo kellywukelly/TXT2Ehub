@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>純前端 TXT 轉 EPUB 產生器</title>
+    <!-- 引入 JSZip 用來在瀏覽器端產生壓縮檔 (EPUB) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            max-width: 600px; 
+            margin: 50px auto; 
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h1 { text-align: center; color: #2c3e50; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .input-group input[type="text"], .input-group input[type="file"] {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;
+        }
+        button {
+            width: 100%; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
+            background-color: #3498db; color: white; border: none; border-radius: 6px;
+            transition: background 0.3s; margin-top: 10px;
+        }
+        button:hover { background-color: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #status { margin-top: 20px; text-align: center; font-weight: bold; color: #27ae60; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>📚 TXT 轉 EPUB (純前端版)</h1>
+        
+        <div class="input-group">
+            <label for="bookTitle">書名：</label>
+            <input type="text" id="bookTitle" placeholder="請輸入書名（預設為檔案名稱）">
+        </div>
+
+        <div class="input-group">
+            <label for="bookAuthor">作者：</label>
+            <input type="text" id="bookAuthor" placeholder="請輸入作者（選填）">
+        </div>
+
+        <div class="input-group">
+            <label for="fileInput">選擇 TXT 檔案：</label>
+            <input type="file" id="fileInput" accept=".txt">
+        </div>
+        
+        <button id="convertBtn" onclick="convertToEpub()">開始轉換並下載</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        async function convertToEpub() {
+            const fileInput = document.getElementById('fileInput');
+            const statusDiv = document.getElementById('status');
+            const convertBtn = document.getElementById('convertBtn');
+            const titleInput = document.getElementById('bookTitle').value.trim();
+            const authorInput = document.getElementById('bookAuthor').value.trim() || "Unknown Author";
+            
+            if (fileInput.files.length === 0) {
+                alert('請先選擇 TXT 檔案！');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const bookTitle = titleInput || file.name.replace(/\.[^/.]+$/, "");
+            
+            // 介面狀態更新
+            convertBtn.disabled = true;
+            statusDiv.innerHTML = '⏳ 處理中，請稍候...';
+
+            try {
+                // 1. 讀取 TXT 內容
+                const text = await readFileAsText(file);
+                
+                // 2. 將純文字轉換為 HTML 段落
+                const htmlContent = text.split('\n')
+                                        .map(line => `<p>${escapeHtml(line.trim())}</p>`)
+                                        .join('\n');
+
+                // 3. 建立 EPUB 檔案結構 (使用 JSZip)
+                const zip = new JSZip();
+
+                // mimetype 必須是第一個檔案且不能壓縮
+                zip.file("mimetype", "application/epub+zip");
+
+                // META-INF 資料夾與 container.xml
+                const metaInf = zip.folder("META-INF");
+                metaInf.file("container.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`);
+
+                // OEBPS 資料夾 (存放書本內容與元資料)
+                const oebps = zip.folder("OEBPS");
+                
+                // 寫入書本 HTML 內容
+                const chapterHtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>${bookTitle}</title></head>
+<body>
+    <h2>${bookTitle}</h2>
+    ${htmlContent}
+</body>
+</html>`;
+                oebps.file("chapter1.xhtml", chapterHtml);
+
+                // 寫入 content.opf (書籍描述檔)
+                oebps.file("content.opf", `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>${bookTitle}</dc:title>
+    <dc:creator>${authorInput}</dc:creator>
+    <dc:language>zh-TW</dc:language>
+    <dc:identifier id="BookId">urn:uuid:${generateUUID()}</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chapter1"/>
+  </spine>
+</package>`);
+
+                // 寫入 toc.ncx (目錄導覽檔)
+                oebps.file("toc.ncx", `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="urn:uuid:${generateUUID()}"/></head>
+  <docTitle><text>${bookTitle}</text></docTitle>
+  <navMap>
+    <navPoint id="navPoint-1" playOrder="1">
+      <navLabel><text>正文</text></navLabel>
+      <content src="chapter1.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>`);
+
+                // 4. 打包並觸發下載
+                const blob = await zip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
+                triggerDownload(blob, `${bookTitle}.epub`);
+
+                statusDiv.innerHTML = '✅ 轉換成功！檔案已下載。';
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerHTML = '❌ 轉換失敗，發生錯誤。';
+                statusDiv.style.color = '#e74c3c';
+            } finally {
+                convertBtn.disabled = false;
+            }
+        }
+
+        // --- 輔助函式 ---
+        
+        // 讀取檔案
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(e);
+                reader.readAsText(file); // 預設使用 UTF-8 讀取
+            });
+        }
+
+        // HTML 溢出字元處理
+        function escapeHtml(unsafe) {
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        // 產生 UUID 用於 EPUB 識別碼
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // 觸發瀏覽器下載
+        function triggerDownload(blob, filename) {
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(downloadUrl);
+        }
+    </script>
+</body>
+</html>
