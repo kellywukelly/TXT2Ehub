@@ -1,0 +1,326 @@
+/* Inkwell — client-side TXT → EPUB converter
+   Encoding auto-detection + EPUB 3 packaging. No network, no upload. */
+
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop"), fileInput = $("file"), queue = $("queue"),
+        opts = $("opts"), goBtn = $("go"), clearBtn = $("clear"),
+        statusEl = $("status"), titleEl = $("title"), authorEl = $("author");
+
+  let files = []; // { file, name, bytes, encoding, confident, text }
+
+  /* ---------- Encoding detection ---------- */
+
+  // Returns { encoding, confident }
+  function detectEncoding(bytes) {
+    // 1) BOM checks
+    if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF)
+      return { encoding: "utf-8", confident: true };
+    if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE)
+      return { encoding: "utf-16le", confident: true };
+    if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF)
+      return { encoding: "utf-16be", confident: true };
+
+    // 2) Strict UTF-8 validation — if it validates, it's almost certainly UTF-8
+    if (isValidUtf8(bytes)) return { encoding: "utf-8", confident: true };
+
+    // 3) Score legacy multi-byte encodings, pick the cleanest decode
+    const candidates = ["big5", "gbk", "shift_jis", "euc-jp", "euc-kr", "windows-1252"];
+    let best = { encoding: "windows-1252", score: -Infinity };
+    for (const enc of candidates) {
+      const s = scoreDecode(bytes, enc);
+      if (s > best.score) best = { encoding: enc, score: s };
+    }
+    return { encoding: best.encoding, confident: false };
+  }
+
+  function isValidUtf8(bytes) {
+    let i = 0;
+    const n = bytes.length;
+    while (i < n) {
+      const b = bytes[i];
+      if (b <= 0x7F) { i++; continue; }
+      let extra;
+      if ((b & 0xE0) === 0xC0) { extra = 1; if (b < 0xC2) return false; }
+      else if ((b & 0xF0) === 0xE0) extra = 2;
+      else if ((b & 0xF8) === 0xF0) { extra = 3; if (b > 0xF4) return false; }
+      else return false;
+      if (i + extra >= n) return false;
+      for (let j = 1; j <= extra; j++) {
+        if ((bytes[i + j] & 0xC0) !== 0x80) return false;
+      }
+      i += extra + 1;
+    }
+    return true;
+  }
+
+  // Heuristic: decode with fatal=false (so errors become U+FFFD), then
+  // penalize replacement chars and reward characters in expected ranges.
+  function scoreDecode(bytes, enc) {
+    let text;
+    try {
+      text = new TextDecoder(enc, { fatal: false }).decode(bytes);
+    } catch (e) {
+      return -Infinity; // encoding unsupported by this browser
+    }
+    let score = 0, replacements = 0, cjk = 0, kana = 0, ascii = 0;
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (c === 0xFFFD) { replacements++; continue; }
+      if (c >= 0x4E00 && c <= 0x9FFF) cjk++;            // CJK ideographs
+      else if (c >= 0x3040 && c <= 0x30FF) kana++;       // hiragana/katakana
+      else if (c >= 0x20 && c <= 0x7E) ascii++;          // printable ASCII
+      else if (c >= 0xAC00 && c <= 0xD7A3) cjk++;        // hangul
+    }
+    score = cjk * 2 + kana * 2 + ascii * 0.3 - replacements * 8;
+    return score;
+  }
+
+  function decode(bytes, encoding) {
+    try {
+      return new TextDecoder(encoding, { fatal: false }).decode(bytes);
+    } catch (e) {
+      return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    }
+  }
+
+  const ENC_LABEL = {
+    "utf-8": "UTF-8", "utf-16le": "UTF-16LE", "utf-16be": "UTF-16BE",
+    "big5": "Big5", "gbk": "GBK", "shift_jis": "Shift-JIS",
+    "euc-jp": "EUC-JP", "euc-kr": "EUC-KR", "windows-1252": "Windows-1252"
+  };
+
+  /* ---------- Chapter parsing ---------- */
+
+  // Matches: 第1章 / 第一章 / 第 12 回 / 卷一 / Chapter 3 / CHAPTER IV / 楔子 / 番外  (line start)
+  // No \b — word boundaries don't apply to CJK characters.
+  const CHAP_RE = /^\s*(第\s*[0-9零一二三四五六七八九十百千兩两]+\s*[章回節节卷]|卷\s*[0-9零一二三四五六七八九十]+\s*[章回部]?|chapter\s+[0-9ivxlcdm]+|chapter\s+\w+|楔子|序章|序言|前言|後記|后记|尾聲|尾声|番外)/i;
+
+  function splitChapters(text, mode) {
+    text = text.replace(/\r\n?/g, "\n");
+    if (mode === "none") {
+      return [{ title: "正文", lines: text.split("\n") }];
+    }
+    if (mode === "blank") {
+      const blocks = text.split(/\n\s*\n\s*\n+/);
+      return blocks.map((b, i) => ({
+        title: "Part " + (i + 1),
+        lines: b.split("\n")
+      })).filter(c => c.lines.join("").trim());
+    }
+    // auto
+    const lines = text.split("\n");
+    const chapters = [];
+    let current = null;
+    for (const line of lines) {
+      if (CHAP_RE.test(line) && line.trim().length <= 40) {
+        current = { title: line.trim(), lines: [] };
+        chapters.push(current);
+      } else {
+        if (!current) { current = { title: "前言", lines: [] }; chapters.push(current); }
+        current.lines.push(line);
+      }
+    }
+    // If nothing detected, fall back to single chapter
+    if (chapters.length <= 1) return [{ title: "正文", lines: text.split("\n") }];
+    return chapters;
+  }
+
+  /* ---------- EPUB building ---------- */
+
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function chapterXhtml(title, lines, lang) {
+    const paras = [];
+    let buf = [];
+    const flush = () => {
+      if (buf.length) { paras.push("<p>" + esc(buf.join("")) + "</p>"); buf = []; }
+    };
+    for (const ln of lines) {
+      if (ln.trim() === "") flush();
+      else buf.push(ln.trim());
+    }
+    flush();
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}" lang="${lang}">
+<head><meta charset="utf-8"/><title>${esc(title)}</title>
+<link rel="stylesheet" type="text/css" href="style.css"/></head>
+<body><h2 class="chap">${esc(title)}</h2>
+${paras.join("\n")}
+</body></html>`;
+  }
+
+  const CSS = `body{font-family:serif;line-height:1.7;margin:5% 6%;}
+h2.chap{font-size:1.3em;text-align:center;margin:1.5em 0 1.2em;page-break-before:always;}
+p{margin:0 0 .9em;text-indent:2em;text-align:justify;}`;
+
+  function uuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  async function buildEpub(title, author, lang, chapters) {
+    const zip = new JSZip();
+    const id = "urn:uuid:" + uuid();
+    const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+
+    // mimetype MUST be first and stored (no compression)
+    zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+
+    zip.folder("META-INF").file("container.xml",
+`<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+
+    const oebps = zip.folder("OEBPS");
+    oebps.file("style.css", CSS);
+
+    const items = [], spine = [], navItems = [];
+    chapters.forEach((ch, i) => {
+      const fn = `chap${String(i + 1).padStart(3, "0")}.xhtml`;
+      oebps.file(fn, chapterXhtml(ch.title, ch.lines, lang));
+      items.push(`<item id="c${i}" href="${fn}" media-type="application/xhtml+xml"/>`);
+      spine.push(`<itemref idref="c${i}"/>`);
+      navItems.push(`<li><a href="${fn}">${esc(ch.title)}</a></li>`);
+    });
+
+    oebps.file("nav.xhtml",
+`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}">
+<head><meta charset="utf-8"/><title>Contents</title></head>
+<body><nav epub:type="toc" id="toc"><h1>目錄</h1><ol>
+${navItems.join("\n")}
+</ol></nav></body></html>`);
+
+    oebps.file("content.opf",
+`<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="${lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="bookid">${id}</dc:identifier>
+<dc:title>${esc(title)}</dc:title>
+<dc:creator>${esc(author)}</dc:creator>
+<dc:language>${lang}</dc:language>
+<meta property="dcterms:modified">${now}</meta>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="css" href="style.css" media-type="text/css"/>
+${items.join("\n")}
+</manifest>
+<spine>
+${spine.join("\n")}
+</spine>
+</package>`);
+
+    return zip.generateAsync({
+      type: "blob",
+      mimeType: "application/epub+zip",
+      compression: "DEFLATE"
+    });
+  }
+
+  /* ---------- UI wiring ---------- */
+
+  function renderQueue() {
+    if (!files.length) {
+      queue.classList.remove("show");
+      opts.classList.remove("show");
+      goBtn.disabled = true;
+      return;
+    }
+    queue.classList.add("show");
+    opts.classList.add("show");
+    goBtn.disabled = false;
+    queue.innerHTML = files.map(f => `
+      <div class="row">
+        <span class="name" title="${esc(f.name)}">${esc(f.name)}</span>
+        <span class="enc ${f.confident ? "" : "guess"}">${ENC_LABEL[f.encoding] || f.encoding}${f.confident ? "" : " ?"}</span>
+        <span class="meta">${(f.bytes.length / 1024).toFixed(1)} KB</span>
+      </div>`).join("");
+
+    if (files.length === 1 && !titleEl.value) {
+      titleEl.value = files[0].name.replace(/\.[^.]+$/, "");
+    }
+  }
+
+  async function addFiles(list) {
+    for (const file of list) {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const det = detectEncoding(buf);
+      const text = decode(buf, det.encoding);
+      files.push({ file, name: file.name, bytes: buf, ...det, text });
+    }
+    renderQueue();
+    setStatus(files.length === 1 && !files[0].confident
+      ? "Encoding is a best guess — check the output if characters look off."
+      : "");
+  }
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("err", !!isErr);
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  // Events
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+  fileInput.addEventListener("change", e => addFiles(e.target.files));
+
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hot"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hot"); }));
+  drop.addEventListener("drop", e => {
+    const f = [...e.dataTransfer.files].filter(x => /\.txt$/i.test(x.name) || x.type === "text/plain");
+    if (f.length) addFiles(f);
+    else setStatus("Only plain-text (.txt) files are supported.", true);
+  });
+
+  clearBtn.addEventListener("click", () => {
+    files = []; fileInput.value = ""; titleEl.value = ""; authorEl.value = "";
+    renderQueue(); setStatus("");
+  });
+
+  goBtn.addEventListener("click", async () => {
+    if (!files.length) return;
+    goBtn.disabled = true;
+    const mode = $("chapmode").value, lang = $("lang").value;
+    const author = authorEl.value.trim() || "Unknown";
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        setStatus(`Building EPUB ${i + 1} / ${files.length}…`);
+        const title = (files.length === 1 ? titleEl.value.trim() : "") ||
+                      f.name.replace(/\.[^.]+$/, "") || "Untitled";
+        const chapters = splitChapters(f.text, mode);
+        const blob = await buildEpub(title, author, lang, chapters);
+        download(blob, title.replace(/[\\/:*?"<>|]/g, "_") + ".epub");
+      }
+      setStatus(`Done — ${files.length} EPUB${files.length > 1 ? "s" : ""} ready.`);
+    } catch (err) {
+      console.error(err);
+      setStatus("Something broke while building. Check the console.", true);
+    } finally {
+      goBtn.disabled = false;
+    }
+  });
+})();

@@ -1,217 +1,229 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>純前端 TXT 轉 EPUB 產生器</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <style>
-        body { 
-            font-family: system-ui, -apple-system, sans-serif; 
-            max-width: 600px; 
-            margin: 50px auto; 
-            padding: 20px;
-            color: #333;
-        }
-        .container {
-            background: #f9f9f9;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-        h1 { text-align: center; color: #2c3e50; }
-        .input-group { margin-bottom: 15px; }
-        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        .input-group input[type="text"], .input-group input[type="file"], .input-group select {
-            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;
-            font-size: 16px;
-        }
-        button {
-            width: 100%; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
-            background-color: #3498db; color: white; border: none; border-radius: 6px;
-            transition: background 0.3s; margin-top: 10px;
-        }
-        button:hover { background-color: #2980b9; }
-        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
-        #status { margin-top: 20px; text-align: center; font-weight: bold; color: #27ae60; }
-        .hint { font-size: 0.85em; color: #e74c3c; margin-top: 5px; display: block;}
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inkwell — TXT to EPUB Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Spline+Sans+Mono:wght@400;500&family=Spline+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --ink:#1a1614;
+    --paper:#f3ece1;
+    --paper-deep:#e8ddcb;
+    --rule:#cfc1a8;
+    --accent:#7b3f2e;       /* oxblood */
+    --accent-soft:#a8634c;
+    --teal:#2f5d5b;         /* desk-lamp green */
+    --gold:#c9952b;
+    --shadow:rgba(40,28,18,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Spline Sans',system-ui,sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(123,63,46,.05), transparent 45%),
+      radial-gradient(circle at 88% 8%, rgba(47,93,91,.06), transparent 40%);
+    min-height:100vh;
+  }
+  .wrap{max-width:860px;margin:0 auto;padding:clamp(28px,5vw,64px) clamp(20px,5vw,40px)}
+
+  /* Masthead */
+  header{border-bottom:3px double var(--ink);padding-bottom:18px;margin-bottom:8px}
+  .eyebrow{
+    font-family:'Spline Sans Mono',monospace;
+    font-size:12px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--accent);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  }
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:900;font-optical-sizing:144;
+    font-size:clamp(46px,11vw,104px);
+    line-height:.92;letter-spacing:-.02em;
+    margin:14px 0 6px;
+  }
+  h1 em{font-style:italic;color:var(--accent);font-weight:400}
+  .tagline{
+    font-family:'Fraunces',serif;font-style:italic;
+    font-size:clamp(16px,2.4vw,21px);color:#5b4a3c;max-width:46ch;
+  }
+
+  /* Workbench card */
+  .bench{
+    margin-top:36px;background:var(--paper-deep);
+    border:1px solid var(--rule);border-radius:4px;
+    box-shadow:0 18px 40px -28px var(--shadow);
+    overflow:hidden;
+  }
+  .drop{
+    padding:clamp(34px,6vw,60px) 28px;text-align:center;
+    border:2px dashed var(--rule);margin:18px;border-radius:3px;
+    transition:.22s ease;cursor:pointer;background:rgba(255,255,255,.25);
+  }
+  .drop.hot{border-color:var(--accent);background:rgba(123,63,46,.07);transform:scale(.995)}
+  .drop .glyph{
+    font-family:'Fraunces',serif;font-size:54px;font-weight:900;color:var(--accent);
+    line-height:1;display:block;margin-bottom:12px;
+  }
+  .drop p{font-size:16px;color:#4d3f33}
+  .drop .sub{font-family:'Spline Sans Mono',monospace;font-size:12px;color:#8a7860;margin-top:8px;letter-spacing:.04em}
+  input[type=file]{display:none}
+
+  /* File queue */
+  .queue{padding:0 18px 6px;display:none}
+  .queue.show{display:block}
+  .row{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;
+    padding:14px 16px;background:rgba(255,255,255,.4);
+    border:1px solid var(--rule);border-radius:3px;margin-bottom:10px;
+  }
+  .row .name{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .enc{
+    font-family:'Spline Sans Mono',monospace;font-size:11px;letter-spacing:.06em;
+    padding:3px 9px;border-radius:99px;background:var(--teal);color:#eef6f2;white-space:nowrap;
+  }
+  .row .enc.guess{background:var(--gold);color:#2a1f06}
+  .row .meta{font-family:'Spline Sans Mono',monospace;font-size:11px;color:#8a7860;text-align:right}
+
+  /* Options */
+  .opts{padding:8px 26px 4px;display:none;grid-template-columns:1fr 1fr;gap:18px}
+  .opts.show{display:grid}
+  .field label{
+    display:block;font-family:'Spline Sans Mono',monospace;font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;
+  }
+  .field input,.field select{
+    width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:3px;
+    background:#fbf7ef;font-family:inherit;font-size:14px;color:var(--ink);
+  }
+  .field input:focus,.field select:focus{outline:2px solid var(--accent-soft);outline-offset:1px;border-color:transparent}
+
+  .actions{padding:22px 26px 28px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .btn{
+    font-family:'Spline Sans',sans-serif;font-weight:600;font-size:15px;
+    padding:13px 26px;border:none;border-radius:3px;cursor:pointer;transition:.18s;
+  }
+  .btn-go{background:var(--accent);color:#f7efe6}
+  .btn-go:hover{background:#682f21}
+  .btn-go:disabled{background:#b8a98f;cursor:not-allowed}
+  .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+  .btn-ghost:hover{background:rgba(0,0,0,.04)}
+  .status{font-family:'Spline Sans Mono',monospace;font-size:13px;color:var(--teal);margin-left:auto}
+  .status.err{color:var(--accent)}
+
+  /* How it works */
+  .notes{margin-top:54px;border-top:1px solid var(--rule);padding-top:28px}
+  .notes h2{font-family:'Fraunces',serif;font-weight:600;font-size:24px;margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px}
+  .note .n{font-family:'Spline Sans Mono',monospace;color:var(--accent);font-size:13px;letter-spacing:.1em}
+  .note h3{font-family:'Fraunces',serif;font-weight:600;font-size:17px;margin:6px 0 6px}
+  .note p{font-size:14px;color:#574a3c}
+
+  footer{margin-top:54px;border-top:3px double var(--ink);padding-top:16px;
+    font-family:'Spline Sans Mono',monospace;font-size:12px;color:#8a7860;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  footer a{color:var(--accent);text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  @media (max-width:620px){.opts{grid-template-columns:1fr}.row{grid-template-columns:1fr auto}.row .meta{display:none}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto}}
+</style>
 </head>
 <body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">
+      <span>Browser-side · No upload</span>
+      <span>TXT → EPUB</span>
+    </div>
+    <h1>Ink<em>well</em></h1>
+    <p class="tagline">Drop a plain-text file and walk away with a clean EPUB. Encoding is detected for you — Big5, GBK, Shift-JIS, UTF-8 and more.</p>
+  </header>
 
-    <div class="container">
-        <h1>📚 TXT 轉 EPUB (防亂碼版)</h1>
-        
-        <div class="input-group">
-            <label for="bookTitle">書名：</label>
-            <input type="text" id="bookTitle" placeholder="請輸入書名（預設為檔案名稱）">
-        </div>
+  <section class="bench">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose or drop a text file">
+      <span class="glyph">¶</span>
+      <p><strong>Drop a .txt file here</strong>, or click to browse</p>
+      <p class="sub">Files never leave your device · multiple files allowed</p>
+    </div>
+    <input type="file" id="file" accept=".txt,text/plain" multiple>
 
-        <div class="input-group">
-            <label for="bookAuthor">作者：</label>
-            <input type="text" id="bookAuthor" placeholder="請輸入作者（選填）">
-        </div>
+    <div class="queue" id="queue"></div>
 
-        <div class="input-group">
-            <label for="fileEncoding">TXT 檔案編碼：</label>
-            <select id="fileEncoding">
-                <option value="UTF-8">UTF-8 (預設，現代檔案適用)</option>
-                <option value="Big5">Big5 (繁體中文常見，若轉出亂碼請選這個)</option>
-            </select>
-            <span class="hint">💡 轉到 iPhone 變亂碼時，請改選 Big5 再轉一次。</span>
-        </div>
-
-        <div class="input-group">
-            <label for="fileInput">選擇 TXT 檔案：</label>
-            <input type="file" id="fileInput" accept=".txt">
-        </div>
-        
-        <button id="convertBtn" onclick="convertToEpub()">開始轉換並下載</button>
-        <div id="status"></div>
+    <div class="opts" id="opts">
+      <div class="field">
+        <label for="title">Book title</label>
+        <input id="title" type="text" placeholder="Untitled">
+      </div>
+      <div class="field">
+        <label for="author">Author</label>
+        <input id="author" type="text" placeholder="Unknown">
+      </div>
+      <div class="field">
+        <label for="chapmode">Chapter splitting</label>
+        <select id="chapmode">
+          <option value="auto">Auto-detect (第N章 / Chapter N)</option>
+          <option value="blank">On blank-line gaps</option>
+          <option value="none">Single chapter</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="lang">Language</label>
+        <select id="lang">
+          <option value="zh-TW">Chinese (Traditional)</option>
+          <option value="zh-CN">Chinese (Simplified)</option>
+          <option value="en">English</option>
+          <option value="ja">Japanese</option>
+        </select>
+      </div>
     </div>
 
-    <script>
-        async function convertToEpub() {
-            const fileInput = document.getElementById('fileInput');
-            const statusDiv = document.getElementById('status');
-            const convertBtn = document.getElementById('convertBtn');
-            const titleInput = document.getElementById('bookTitle').value.trim();
-            const authorInput = document.getElementById('bookAuthor').value.trim() || "Unknown Author";
-            // 讀取使用者選擇的編碼
-            const encoding = document.getElementById('fileEncoding').value; 
-            
-            if (fileInput.files.length === 0) {
-                alert('請先選擇 TXT 檔案！');
-                return;
-            }
+    <div class="actions">
+      <button class="btn btn-go" id="go" disabled>Convert to EPUB</button>
+      <button class="btn btn-ghost" id="clear">Clear</button>
+      <span class="status" id="status"></span>
+    </div>
+  </section>
 
-            const file = fileInput.files[0];
-            const bookTitle = titleInput || file.name.replace(/\.[^/.]+$/, "");
-            
-            convertBtn.disabled = true;
-            statusDiv.innerHTML = '⏳ 處理中，請稍候...';
+  <section class="notes">
+    <h2>How it reads your files</h2>
+    <div class="grid">
+      <div class="note">
+        <div class="n">01</div>
+        <h3>Sniff the bytes</h3>
+        <p>A BOM check comes first, then statistical scoring across Big5, GBK, Shift-JIS and UTF-8 to pick the encoding that yields the fewest invalid sequences.</p>
+      </div>
+      <div class="note">
+        <div class="n">02</div>
+        <h3>Decode cleanly</h3>
+        <p>The chosen encoding is decoded with the browser's native TextDecoder, so characters land right instead of as mojibake.</p>
+      </div>
+      <div class="note">
+        <div class="n">03</div>
+        <h3>Find the chapters</h3>
+        <p>Headings like 第一章 or Chapter 4 become a real table of contents, each its own XHTML page inside the EPUB.</p>
+      </div>
+      <div class="note">
+        <div class="n">04</div>
+        <h3>Pack the EPUB</h3>
+        <p>A spec-valid EPUB 3 container is zipped in-browser — mimetype stored first, then opened by any reader.</p>
+      </div>
+    </div>
+  </section>
 
-            try {
-                // 1. 讀取 TXT 內容 (帶入使用者選擇的編碼)
-                const text = await readFileAsText(file, encoding);
-                
-                // 2. 將純文字轉換為 HTML 段落
-                const htmlContent = text.split('\n')
-                                        .map(line => `<p>${escapeHtml(line.trim())}</p>`)
-                                        .join('\n');
+  <footer>
+    <span>Inkwell · MIT License</span>
+    <span>Runs fully client-side — perfect for GitHub Pages</span>
+  </footer>
+</div>
 
-                // 3. 建立 EPUB 檔案結構
-                const zip = new JSZip();
-
-                zip.file("mimetype", "application/epub+zip");
-
-                const metaInf = zip.folder("META-INF");
-                metaInf.file("container.xml", `<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-  </rootfiles>
-</container>`);
-
-                const oebps = zip.folder("OEBPS");
-                
-                // 特別在 head 加入 meta charset="utf-8" 雙重保證
-                const chapterHtml = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-    <meta charset="utf-8" />
-    <title>${bookTitle}</title>
-</head>
-<body>
-    <h2>${bookTitle}</h2>
-    ${htmlContent}
-</body>
-</html>`;
-                oebps.file("chapter1.xhtml", chapterHtml);
-
-                oebps.file("content.opf", `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>${bookTitle}</dc:title>
-    <dc:creator>${authorInput}</dc:creator>
-    <dc:language>zh-TW</dc:language>
-    <dc:identifier id="BookId">urn:uuid:${generateUUID()}</dc:identifier>
-  </metadata>
-  <manifest>
-    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
-  </manifest>
-  <spine toc="ncx">
-    <itemref idref="chapter1"/>
-  </spine>
-</package>`);
-
-                oebps.file("toc.ncx", `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
-  <head><meta name="dtb:uid" content="urn:uuid:${generateUUID()}"/></head>
-  <docTitle><text>${bookTitle}</text></docTitle>
-  <navMap>
-    <navPoint id="navPoint-1" playOrder="1">
-      <navLabel><text>正文</text></navLabel>
-      <content src="chapter1.xhtml"/>
-    </navPoint>
-  </navMap>
-</ncx>`);
-
-                // 4. 打包並觸發下載
-                const blob = await zip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
-                triggerDownload(blob, `${bookTitle}.epub`);
-
-                statusDiv.innerHTML = '✅ 轉換成功！檔案已下載。';
-                statusDiv.style.color = '#27ae60';
-            } catch (error) {
-                console.error(error);
-                statusDiv.innerHTML = '❌ 轉換失敗，發生錯誤。';
-                statusDiv.style.color = '#e74c3c';
-            } finally {
-                convertBtn.disabled = false;
-            }
-        }
-
-        // --- 輔助函式 ---
-        
-        // 修改：讀取檔案時加入編碼參數
-        function readFileAsText(file, encoding) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = (e) => reject(e);
-                reader.readAsText(file, encoding); 
-            });
-        }
-
-        function escapeHtml(unsafe) {
-            return unsafe
-                 .replace(/&/g, "&amp;")
-                 .replace(/</g, "&lt;")
-                 .replace(/>/g, "&gt;")
-                 .replace(/"/g, "&quot;")
-                 .replace(/'/g, "&#039;");
-        }
-
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-        }
-
-        function triggerDownload(blob, filename) {
-            const downloadUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(downloadUrl);
-        }
-    </script>
+<script src="converter.js"></script>
 </body>
 </html>
