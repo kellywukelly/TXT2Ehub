@@ -9,9 +9,24 @@
         opts = $("opts"), goBtn = $("go"), clearBtn = $("clear"),
         statusEl = $("status"), titleEl = $("title"), authorEl = $("author");
 
-  let files = []; // { file, name, bytes, encoding, confident, text }
+  let files = []; // { file, name, bytes, encoding, confident, text, padding }
 
   /* ---------- Encoding detection ---------- */
+
+  // Some "TXT之夢"-style files prepend a run of filler bytes (e.g. 0xF9, 0x00)
+  // before the real Big5/UTF-8 content. Detect and strip that run so it
+  // doesn't poison encoding detection.
+  function stripPadding(bytes) {
+    if (bytes.length > 8) {
+      const b0 = bytes[0];
+      if (b0 === 0xF9 || b0 === 0xFA || b0 === 0xFB || b0 === 0x00) {
+        let i = 0;
+        while (i < bytes.length && bytes[i] === b0) i++;
+        if (i >= 4) return { body: bytes.subarray(i), padding: i };
+      }
+    }
+    return { body: bytes, padding: 0 };
+  }
 
   // Returns { encoding, confident }
   function detectEncoding(bytes) {
@@ -26,8 +41,11 @@
     // 2) Strict UTF-8 validation — if it validates, it's almost certainly UTF-8
     if (isValidUtf8(bytes)) return { encoding: "utf-8", confident: true };
 
-    // 3) Score legacy multi-byte encodings, pick the cleanest decode
-    const candidates = ["big5", "gbk", "shift_jis", "euc-jp", "euc-kr", "windows-1252"];
+    // 3) Score legacy multi-byte encodings, pick the cleanest decode.
+    //    big5 and cp950 (Windows Big5 superset) are both tried — many
+    //    Traditional-Chinese novel TXTs use cp950 extension characters that
+    //    plain big5 cannot decode.
+    const candidates = ["big5", "gbk", "gb18030", "shift_jis", "euc-jp", "euc-kr", "windows-1252"];
     let best = { encoding: "windows-1252", score: -Infinity };
     for (const enc of candidates) {
       const s = scoreDecode(bytes, enc);
@@ -57,7 +75,7 @@
   }
 
   // Heuristic: decode with fatal=false (so errors become U+FFFD), then
-  // penalize replacement chars and reward characters in expected ranges.
+  // penalize replacement chars and PUA chars, reward expected ranges.
   function scoreDecode(bytes, enc) {
     let text;
     try {
@@ -65,19 +83,23 @@
     } catch (e) {
       return -Infinity; // encoding unsupported by this browser
     }
-    let score = 0, replacements = 0, cjk = 0, kana = 0, ascii = 0;
+    let replacements = 0, cjk = 0, kana = 0, ascii = 0, pua = 0;
     for (const ch of text) {
       const c = ch.codePointAt(0);
       if (c === 0xFFFD) { replacements++; continue; }
-      if (c >= 0x4E00 && c <= 0x9FFF) cjk++;            // CJK ideographs
-      else if (c >= 0x3040 && c <= 0x30FF) kana++;       // hiragana/katakana
-      else if (c >= 0x20 && c <= 0x7E) ascii++;          // printable ASCII
-      else if (c >= 0xAC00 && c <= 0xD7A3) cjk++;        // hangul
+      if (c >= 0xE000 && c <= 0xF8FF) { pua++; continue; }   // private-use: bad sign
+      if (c >= 0x4E00 && c <= 0x9FFF) cjk++;                 // CJK ideographs
+      else if (c >= 0x3040 && c <= 0x30FF) kana++;           // hiragana/katakana
+      else if (c >= 0x20 && c <= 0x7E) ascii++;              // printable ASCII
+      else if (c >= 0xAC00 && c <= 0xD7A3) cjk++;            // hangul
     }
-    score = cjk * 2 + kana * 2 + ascii * 0.3 - replacements * 8;
-    return score;
+    // PUA characters mean the decode produced meaningless glyphs — penalize hard.
+    return cjk * 2 + kana * 2 + ascii * 0.3 - replacements * 8 - pua * 6;
   }
 
+  // Browsers don't expose a separate "cp950" label, but their "big5" decoder
+  // is actually the WHATWG Big5 (a cp950 superset), so "big5" already covers
+  // the Windows extension characters. We keep the label friendly below.
   function decode(bytes, encoding) {
     try {
       return new TextDecoder(encoding, { fatal: false }).decode(bytes);
@@ -88,7 +110,7 @@
 
   const ENC_LABEL = {
     "utf-8": "UTF-8", "utf-16le": "UTF-16LE", "utf-16be": "UTF-16BE",
-    "big5": "Big5", "gbk": "GBK", "shift_jis": "Shift-JIS",
+    "big5": "Big5", "gbk": "GBK", "gb18030": "GB18030", "shift_jis": "Shift-JIS",
     "euc-jp": "EUC-JP", "euc-kr": "EUC-KR", "windows-1252": "Windows-1252"
   };
 
@@ -123,7 +145,6 @@
         current.lines.push(line);
       }
     }
-    // If nothing detected, fall back to single chapter
     if (chapters.length <= 1) return [{ title: "正文", lines: text.split("\n") }];
     return chapters;
   }
@@ -173,7 +194,6 @@ p{margin:0 0 .9em;text-indent:2em;text-align:justify;}`;
     const id = "urn:uuid:" + uuid();
     const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
-    // mimetype MUST be first and stored (no compression)
     zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
 
     zip.folder("META-INF").file("container.xml",
@@ -245,7 +265,7 @@ ${spine.join("\n")}
     queue.innerHTML = files.map(f => `
       <div class="row">
         <span class="name" title="${esc(f.name)}">${esc(f.name)}</span>
-        <span class="enc ${f.confident ? "" : "guess"}">${ENC_LABEL[f.encoding] || f.encoding}${f.confident ? "" : " ?"}</span>
+        <span class="enc ${f.confident ? "" : "guess"}">${ENC_LABEL[f.encoding] || f.encoding}${f.confident ? "" : " ?"}${f.padding ? " ·trimmed" : ""}</span>
         <span class="meta">${(f.bytes.length / 1024).toFixed(1)} KB</span>
       </div>`).join("");
 
@@ -256,13 +276,15 @@ ${spine.join("\n")}
 
   async function addFiles(list) {
     for (const file of list) {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      const det = detectEncoding(buf);
-      const text = decode(buf, det.encoding);
-      files.push({ file, name: file.name, bytes: buf, ...det, text });
+      const all = new Uint8Array(await file.arrayBuffer());
+      const { body, padding } = stripPadding(all);
+      const det = detectEncoding(body);
+      const text = decode(body, det.encoding);
+      files.push({ file, name: file.name, bytes: all, padding, ...det, text });
     }
     renderQueue();
-    setStatus(files.length === 1 && !files[0].confident
+    const anyGuess = files.some(f => !f.confident);
+    setStatus(anyGuess
       ? "Encoding is a best guess — check the output if characters look off."
       : "");
   }
@@ -280,7 +302,6 @@ ${spine.join("\n")}
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
-  // Events
   drop.addEventListener("click", () => fileInput.click());
   drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener("change", e => addFiles(e.target.files));

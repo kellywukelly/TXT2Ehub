@@ -10,106 +10,40 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
-    --ink:#1a1614;
-    --paper:#f3ece1;
-    --paper-deep:#e8ddcb;
-    --rule:#cfc1a8;
-    --accent:#7b3f2e;       /* oxblood */
-    --accent-soft:#a8634c;
-    --teal:#2f5d5b;         /* desk-lamp green */
-    --gold:#c9952b;
-    --shadow:rgba(40,28,18,.18);
+    --ink:#1a1614;--paper:#f3ece1;--paper-deep:#e8ddcb;--rule:#cfc1a8;
+    --accent:#7b3f2e;--accent-soft:#a8634c;--teal:#2f5d5b;--gold:#c9952b;--shadow:rgba(40,28,18,.18);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{
-    background:var(--paper);
-    color:var(--ink);
-    font-family:'Spline Sans',system-ui,sans-serif;
-    line-height:1.55;
-    -webkit-font-smoothing:antialiased;
-    background-image:
-      radial-gradient(circle at 12% 18%, rgba(123,63,46,.05), transparent 45%),
-      radial-gradient(circle at 88% 8%, rgba(47,93,91,.06), transparent 40%);
-    min-height:100vh;
-  }
+  body{background:var(--paper);color:var(--ink);font-family:'Spline Sans',system-ui,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(circle at 12% 18%, rgba(123,63,46,.05), transparent 45%),radial-gradient(circle at 88% 8%, rgba(47,93,91,.06), transparent 40%);min-height:100vh;}
   .wrap{max-width:860px;margin:0 auto;padding:clamp(28px,5vw,64px) clamp(20px,5vw,40px)}
-
-  /* Masthead */
   header{border-bottom:3px double var(--ink);padding-bottom:18px;margin-bottom:8px}
-  .eyebrow{
-    font-family:'Spline Sans Mono',monospace;
-    font-size:12px;letter-spacing:.34em;text-transform:uppercase;
-    color:var(--accent);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
-  }
-  h1{
-    font-family:'Fraunces',serif;
-    font-weight:900;font-optical-sizing:144;
-    font-size:clamp(46px,11vw,104px);
-    line-height:.92;letter-spacing:-.02em;
-    margin:14px 0 6px;
-  }
+  .eyebrow{font-family:'Spline Sans Mono',monospace;font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:var(--accent);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+  h1{font-family:'Fraunces',serif;font-weight:900;font-optical-sizing:144;font-size:clamp(46px,11vw,104px);line-height:.92;letter-spacing:-.02em;margin:14px 0 6px;}
   h1 em{font-style:italic;color:var(--accent);font-weight:400}
-  .tagline{
-    font-family:'Fraunces',serif;font-style:italic;
-    font-size:clamp(16px,2.4vw,21px);color:#5b4a3c;max-width:46ch;
-  }
-
-  /* Workbench card */
-  .bench{
-    margin-top:36px;background:var(--paper-deep);
-    border:1px solid var(--rule);border-radius:4px;
-    box-shadow:0 18px 40px -28px var(--shadow);
-    overflow:hidden;
-  }
-  .drop{
-    padding:clamp(34px,6vw,60px) 28px;text-align:center;
-    border:2px dashed var(--rule);margin:18px;border-radius:3px;
-    transition:.22s ease;cursor:pointer;background:rgba(255,255,255,.25);
-  }
+  .tagline{font-family:'Fraunces',serif;font-style:italic;font-size:clamp(16px,2.4vw,21px);color:#5b4a3c;max-width:46ch;}
+  .bench{margin-top:36px;background:var(--paper-deep);border:1px solid var(--rule);border-radius:4px;box-shadow:0 18px 40px -28px var(--shadow);overflow:hidden;}
+  .drop{padding:clamp(34px,6vw,60px) 28px;text-align:center;border:2px dashed var(--rule);margin:18px;border-radius:3px;transition:.22s ease;cursor:pointer;background:rgba(255,255,255,.25);}
   .drop.hot{border-color:var(--accent);background:rgba(123,63,46,.07);transform:scale(.995)}
-  .drop .glyph{
-    font-family:'Fraunces',serif;font-size:54px;font-weight:900;color:var(--accent);
-    line-height:1;display:block;margin-bottom:12px;
-  }
+  .drop .glyph{font-family:'Fraunces',serif;font-size:54px;font-weight:900;color:var(--accent);line-height:1;display:block;margin-bottom:12px;}
   .drop p{font-size:16px;color:#4d3f33}
   .drop .sub{font-family:'Spline Sans Mono',monospace;font-size:12px;color:#8a7860;margin-top:8px;letter-spacing:.04em}
   input[type=file]{display:none}
-
-  /* File queue */
   .queue{padding:0 18px 6px;display:none}
   .queue.show{display:block}
-  .row{
-    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;
-    padding:14px 16px;background:rgba(255,255,255,.4);
-    border:1px solid var(--rule);border-radius:3px;margin-bottom:10px;
-  }
+  .row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;padding:14px 16px;background:rgba(255,255,255,.4);border:1px solid var(--rule);border-radius:3px;margin-bottom:10px;}
   .row .name{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .row .enc{
-    font-family:'Spline Sans Mono',monospace;font-size:11px;letter-spacing:.06em;
-    padding:3px 9px;border-radius:99px;background:var(--teal);color:#eef6f2;white-space:nowrap;
-  }
+  .row .enc{font-family:'Spline Sans Mono',monospace;font-size:11px;letter-spacing:.06em;padding:3px 9px;border-radius:99px;background:var(--teal);color:#eef6f2;white-space:nowrap;}
   .row .enc.guess{background:var(--gold);color:#2a1f06}
   .row .meta{font-family:'Spline Sans Mono',monospace;font-size:11px;color:#8a7860;text-align:right}
-
-  /* Options */
   .opts{padding:8px 26px 4px;display:none;grid-template-columns:1fr 1fr;gap:18px}
   .opts.show{display:grid}
-  .field label{
-    display:block;font-family:'Spline Sans Mono',monospace;font-size:11px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;
-  }
-  .field input,.field select{
-    width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:3px;
-    background:#fbf7ef;font-family:inherit;font-size:14px;color:var(--ink);
-  }
+  .field label{display:block;font-family:'Spline Sans Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;}
+  .field input,.field select{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:3px;background:#fbf7ef;font-family:inherit;font-size:14px;color:var(--ink);}
   .field input:focus,.field select:focus{outline:2px solid var(--accent-soft);outline-offset:1px;border-color:transparent}
-
   .actions{padding:22px 26px 28px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
-  .btn{
-    font-family:'Spline Sans',sans-serif;font-weight:600;font-size:15px;
-    padding:13px 26px;border:none;border-radius:3px;cursor:pointer;transition:.18s;
-  }
+  .btn{font-family:'Spline Sans',sans-serif;font-weight:600;font-size:15px;padding:13px 26px;border:none;border-radius:3px;cursor:pointer;transition:.18s;}
   .btn-go{background:var(--accent);color:#f7efe6}
   .btn-go:hover{background:#682f21}
   .btn-go:disabled{background:#b8a98f;cursor:not-allowed}
@@ -117,21 +51,15 @@
   .btn-ghost:hover{background:rgba(0,0,0,.04)}
   .status{font-family:'Spline Sans Mono',monospace;font-size:13px;color:var(--teal);margin-left:auto}
   .status.err{color:var(--accent)}
-
-  /* How it works */
   .notes{margin-top:54px;border-top:1px solid var(--rule);padding-top:28px}
   .notes h2{font-family:'Fraunces',serif;font-weight:600;font-size:24px;margin-bottom:18px}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px}
   .note .n{font-family:'Spline Sans Mono',monospace;color:var(--accent);font-size:13px;letter-spacing:.1em}
   .note h3{font-family:'Fraunces',serif;font-weight:600;font-size:17px;margin:6px 0 6px}
   .note p{font-size:14px;color:#574a3c}
-
-  footer{margin-top:54px;border-top:3px double var(--ink);padding-top:16px;
-    font-family:'Spline Sans Mono',monospace;font-size:12px;color:#8a7860;
-    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  footer{margin-top:54px;border-top:3px double var(--ink);padding-top:16px;font-family:'Spline Sans Mono',monospace;font-size:12px;color:#8a7860;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
   footer a{color:var(--accent);text-decoration:none}
   footer a:hover{text-decoration:underline}
-
   @media (max-width:620px){.opts{grid-template-columns:1fr}.row{grid-template-columns:1fr auto}.row .meta{display:none}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto}}
 </style>
@@ -139,10 +67,7 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">
-      <span>Browser-side · No upload</span>
-      <span>TXT → EPUB</span>
-    </div>
+    <div class="eyebrow"><span>Browser-side · No upload</span><span>TXT → EPUB</span></div>
     <h1>Ink<em>well</em></h1>
     <p class="tagline">Drop a plain-text file and walk away with a clean EPUB. Encoding is detected for you — Big5, GBK, Shift-JIS, UTF-8 and more.</p>
   </header>
@@ -158,24 +83,16 @@
     <div class="queue" id="queue"></div>
 
     <div class="opts" id="opts">
-      <div class="field">
-        <label for="title">Book title</label>
-        <input id="title" type="text" placeholder="Untitled">
-      </div>
-      <div class="field">
-        <label for="author">Author</label>
-        <input id="author" type="text" placeholder="Unknown">
-      </div>
-      <div class="field">
-        <label for="chapmode">Chapter splitting</label>
+      <div class="field"><label for="title">Book title</label><input id="title" type="text" placeholder="Untitled"></div>
+      <div class="field"><label for="author">Author</label><input id="author" type="text" placeholder="Unknown"></div>
+      <div class="field"><label for="chapmode">Chapter splitting</label>
         <select id="chapmode">
           <option value="auto">Auto-detect (第N章 / Chapter N)</option>
           <option value="blank">On blank-line gaps</option>
           <option value="none">Single chapter</option>
         </select>
       </div>
-      <div class="field">
-        <label for="lang">Language</label>
+      <div class="field"><label for="lang">Language</label>
         <select id="lang">
           <option value="zh-TW">Chinese (Traditional)</option>
           <option value="zh-CN">Chinese (Simplified)</option>
@@ -195,26 +112,10 @@
   <section class="notes">
     <h2>How it reads your files</h2>
     <div class="grid">
-      <div class="note">
-        <div class="n">01</div>
-        <h3>Sniff the bytes</h3>
-        <p>A BOM check comes first, then statistical scoring across Big5, GBK, Shift-JIS and UTF-8 to pick the encoding that yields the fewest invalid sequences.</p>
-      </div>
-      <div class="note">
-        <div class="n">02</div>
-        <h3>Decode cleanly</h3>
-        <p>The chosen encoding is decoded with the browser's native TextDecoder, so characters land right instead of as mojibake.</p>
-      </div>
-      <div class="note">
-        <div class="n">03</div>
-        <h3>Find the chapters</h3>
-        <p>Headings like 第一章 or Chapter 4 become a real table of contents, each its own XHTML page inside the EPUB.</p>
-      </div>
-      <div class="note">
-        <div class="n">04</div>
-        <h3>Pack the EPUB</h3>
-        <p>A spec-valid EPUB 3 container is zipped in-browser — mimetype stored first, then opened by any reader.</p>
-      </div>
+      <div class="note"><div class="n">01</div><h3>Trim & sniff</h3><p>Stray filler bytes some sites prepend are stripped first, then a BOM check and strict UTF-8 validation run before anything else.</p></div>
+      <div class="note"><div class="n">02</div><h3>Score & decode</h3><p>Legacy encodings — Big5, GBK, GB18030, Shift-JIS — are scored by valid characters minus garbage and private-use glyphs; the cleanest wins.</p></div>
+      <div class="note"><div class="n">03</div><h3>Find the chapters</h3><p>Headings like 第一章 or Chapter 4 become a real table of contents, each its own XHTML page inside the EPUB.</p></div>
+      <div class="note"><div class="n">04</div><h3>Pack the EPUB</h3><p>A spec-valid EPUB 3 container is zipped in-browser — mimetype stored first, then opened by any reader.</p></div>
     </div>
   </section>
 
@@ -223,7 +124,6 @@
     <span>Runs fully client-side — perfect for GitHub Pages</span>
   </footer>
 </div>
-
 <script src="converter.js"></script>
 </body>
 </html>
