@@ -157,16 +157,41 @@
   }
 
   function chapterXhtml(title, lines, lang) {
+    // Decide the paragraph style of this chapter:
+    // Many Chinese novel TXTs put each paragraph on its own line (indented with
+    // full-width spaces) with NO blank line between them. Others wrap a single
+    // paragraph across several lines and separate paragraphs with a blank line.
+    const nonBlank = lines.filter(l => l.trim() !== "");
+    const blanks = lines.length - nonBlank.length;
+    // Primary signal: if most non-blank lines start with an indent (full-width
+    // space 　 or 2+ regular spaces), this is the "one paragraph per line"
+    // convention used by the vast majority of Chinese novel TXTs.
+    const indented = nonBlank.filter(l => /^(\u3000|\s{2,})/.test(l)).length;
+    const mostlyIndented = nonBlank.length > 0 && indented >= nonBlank.length * 0.6;
+    // Without indentation, only treat each line as a paragraph when there are
+    // essentially no blank-line separators at all (so we don't merge real
+    // blank-separated paragraphs by mistake).
+    const linePerPara = mostlyIndented || (blanks === 0 && nonBlank.length > 1);
+
     const paras = [];
-    let buf = [];
-    const flush = () => {
-      if (buf.length) { paras.push("<p>" + esc(buf.join("")) + "</p>"); buf = []; }
-    };
-    for (const ln of lines) {
-      if (ln.trim() === "") flush();
-      else buf.push(ln.trim());
+    if (linePerPara) {
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (t !== "") paras.push("<p>" + esc(t) + "</p>");
+      }
+    } else {
+      // Blank-line separated: join consecutive non-blank lines into one paragraph.
+      let buf = [];
+      const flush = () => {
+        if (buf.length) { paras.push("<p>" + esc(buf.join("")) + "</p>"); buf = []; }
+      };
+      for (const ln of lines) {
+        if (ln.trim() === "") flush();
+        else buf.push(ln.trim());
+      }
+      flush();
     }
-    flush();
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}" lang="${lang}">
