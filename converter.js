@@ -207,14 +207,13 @@ ${paras.join("\n")}
   // moderate line-height, and orphan/widow + break rules so paragraphs and
   // headings are never split awkwardly across pages.
   const CSS = `html,body{margin:0;padding:0;}
-body{font-family:serif;line-height:1.5;margin:1em 1.2em;
-  orphans:2;widows:2;-webkit-hyphens:auto;hyphens:auto;}
-h2.chap{font-size:1.3em;font-weight:bold;text-align:center;
-  margin:1em 0 1em;line-height:1.4;
+body{font-family:serif;margin:1em 1.2em;}
+h2.chap{font-size:1.4em;font-weight:bold;text-align:center;
+  line-height:1.3;padding-top:0.5em;padding-bottom:1em;
   page-break-before:always;break-before:page;
-  page-break-after:avoid;break-after:avoid;
-  page-break-inside:avoid;break-inside:avoid;}
-p{margin:0 0 .8em;text-indent:2em;text-align:justify;line-height:1.5;
+  page-break-after:avoid;break-after:avoid;}
+p{margin:0;padding-top:0.35em;padding-bottom:0.35em;
+  line-height:1.5;text-indent:2em;text-align:justify;
   orphans:2;widows:2;}`;
 
   function uuid() {
